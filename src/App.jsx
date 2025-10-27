@@ -380,9 +380,7 @@ function MainApp({ user, onLogout }){
       </main>
     </div>
   );
-}
-
-function TaskForm({stores, onAdd}){
+}function TaskForm({stores, onAdd}){
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0,10),
     store: stores[0] || "",
@@ -571,6 +569,7 @@ function Input({label, value, onChange, type="text", placeholder}){
     </label>
   );
 }
+
 function Textarea({label, value, onChange, placeholder}){
   return (
     <label className="block text-sm">
@@ -579,6 +578,7 @@ function Textarea({label, value, onChange, placeholder}){
     </label>
   );
 }
+
 function Select({label, value, onChange, options}){
   return (
     <label className="block text-sm">
@@ -589,10 +589,10 @@ function Select({label, value, onChange, options}){
     </label>
   );
 }
+
 function Toggle({label, checked, onChange}){
   return (
-    <label className="block
-      <label className="block text-sm select-none">
+    <label className="block text-sm select-none">
       <span className="text-neutral-700">{label}</span>
       <div className="mt-1 flex items-center gap-2">
         <button type="button" onClick={()=>onChange(!checked)} className={clsx("px-3 py-2 rounded-xl border", checked?"bg-neutral-900 text-white":"bg-white")}>{checked?"Oui":"Non"}</button>
