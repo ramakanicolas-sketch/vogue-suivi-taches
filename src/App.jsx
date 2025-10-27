@@ -175,7 +175,7 @@ function MainApp({ user, onLogout }){
       }
       if(filters.q){
         const q = filters.q.toLowerCase();
-        const pool = `${t.title} ${t.notes||""} ${t.controller||""} ${t.storeManager||""}`.toLowerCase();
+        const pool = `${t.title} ${t.notes||""} ${t.controller||""} ${t.storeManager||""} ${t.feedbackMagasin||""}`.toLowerCase();
         if(!pool.includes(q)) return false;
       }
       return true;
@@ -188,6 +188,7 @@ function MainApp({ user, onLogout }){
         createdAt: new Date().toISOString(),
         validation: 'Non contrôlé',
         status: 'À faire',
+        feedbackMagasin: '',
         ...newTask
       });
     } catch (error) {
@@ -220,7 +221,8 @@ function MainApp({ user, onLogout }){
       'Magasin': t.store || '',
       'Responsable magasin': t.storeManager || '',
       'Tâche demandée': t.title || '',
-      'Commentaire': t.notes || '',
+      'Commentaire VM': t.notes || '',
+      'Retour magasin': t.feedbackMagasin || '',
       'Contrôleur': t.controller || '',
       'Date de passage': formatDateForExcel(t.date),
       'Deadline': formatDateForExcel(t.deadline),
@@ -233,7 +235,7 @@ function MainApp({ user, onLogout }){
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     
     const colWidths = [
-      { wch: 20 }, { wch: 20 }, { wch: 35 }, { wch: 40 }, { wch: 20 },
+      { wch: 20 }, { wch: 20 }, { wch: 35 }, { wch: 40 }, { wch: 40 }, { wch: 20 },
       { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 18 }, { wch: 38 },
     ];
     worksheet['!cols'] = colWidths;
@@ -263,7 +265,8 @@ function MainApp({ user, onLogout }){
             store: row['Magasin'] || '',
             storeManager: row['Responsable magasin'] || '',
             title: row['Tâche demandée'] || '',
-            notes: row['Commentaire'] || '',
+            notes: row['Commentaire VM'] || '',
+            feedbackMagasin: row['Retour magasin'] || '',
             controller: row['Contrôleur'] || '',
             date: parseExcelDate(row['Date de passage']) || new Date().toISOString().slice(0,10),
             deadline: parseExcelDate(row['Deadline']) || '',
@@ -471,7 +474,7 @@ function TaskForm({stores, onAdd}){
       <Input label="Tâche demandée" value={form.title} onChange={v=>setForm(f=>({...f, title:v}))} placeholder="Ex.: Refaire facing rayon jeans" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Input label="Deadline" type="date" value={form.deadline} onChange={v=>setForm(f=>({...f, deadline:v}))} />
-        <Textarea label="Commentaire" value={form.notes} onChange={v=>setForm(f=>({...f, notes:v}))} placeholder="Détails, photos prises, consignes…" />
+        <Textarea label="Commentaire VM" value={form.notes} onChange={v=>setForm(f=>({...f, notes:v}))} placeholder="Instructions, détails, consignes…" />
       </div>
       <button onClick={submit} className="w-full py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800">
         {form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter la tâche"}
@@ -519,7 +522,8 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
       </td>
       <td className="align-top px-3 py-2">
         <div className="font-medium">{t.title}</div>
-        <div className="text-neutral-500 text-xs">{t.notes}</div>
+        {t.notes && <div className="text-neutral-500 text-xs mt-1"><strong>Commentaire VM:</strong> {t.notes}</div>}
+        {t.feedbackMagasin && <div className="text-blue-600 text-xs mt-1"><strong>Retour magasin:</strong> {t.feedbackMagasin}</div>}
         <div className="text-xs text-neutral-400 mt-1">Contrôleur: {t.controller || "—"}</div>
       </td>
       <td className="align-top px-3 py-2 whitespace-nowrap">{formatDate(t.date)}</td>
@@ -541,7 +545,13 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
       )}
       <td className="align-top px-3 py-2 whitespace-nowrap">
         <div className="flex items-center gap-2">
-          <button onClick={()=>onUpdate(t.id, {notes: prompt('Commentaire magasin / contrôleur', t.notes||'') ?? t.notes})} className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-neutral-50">💬</button>
+          <button 
+            onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur cette tâche', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+            className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-neutral-50"
+            title="Ajouter un retour magasin"
+          >
+            💬
+          </button>
           {onDelete && (
             <button onClick={()=>onDelete(t.id)} className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-red-50">🗑️</button>
           )}
@@ -581,7 +591,8 @@ function Select({label, value, onChange, options}){
 }
 function Toggle({label, checked, onChange}){
   return (
-    <label className="block text-sm select-none">
+    <label className="block
+      <label className="block text-sm select-none">
       <span className="text-neutral-700">{label}</span>
       <div className="mt-1 flex items-center gap-2">
         <button type="button" onClick={()=>onChange(!checked)} className={clsx("px-3 py-2 rounded-xl border", checked?"bg-neutral-900 text-white":"bg-white")}>{checked?"Oui":"Non"}</button>
