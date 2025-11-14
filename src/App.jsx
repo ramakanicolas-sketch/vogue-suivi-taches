@@ -512,6 +512,8 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
     return dl < new Date();
   }, [t.deadline, t.status]);
 
+  const canEditDeadline = userRole === "admin" || userRole === "vm";
+
   return (
     <tr className="border-t hover:bg-neutral-50">
       <td className="align-top px-3 py-2 whitespace-nowrap">
@@ -526,8 +528,17 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
       </td>
       <td className="align-top px-3 py-2 whitespace-nowrap">{formatDate(t.date)}</td>
       <td className="align-top px-3 py-2 whitespace-nowrap">
-        <div className={clsx(overdue?"text-red-600 font-semibold":"")}>{formatDate(t.deadline) || "—"}</div>
-        {overdue && <span className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-lg">En retard</span>}
+        {canEditDeadline ? (
+          <input
+            type="date"
+            value={t.deadline || ''}
+            onChange={(e) => onUpdate(t.id, {deadline: e.target.value})}
+            className="px-2 py-1 rounded-lg border bg-white text-xs"
+          />
+        ) : (
+          <div className={clsx(overdue?"text-red-600 font-semibold":"")}>{formatDate(t.deadline) || "—"}</div>
+        )}
+        {overdue && <span className="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-lg mt-1 inline-block">En retard</span>}
       </td>
       <td className="align-top px-3 py-2 whitespace-nowrap">
         <select value={t.status} onChange={e=>onUpdate(t.id,{status:e.target.value})} className="px-2 py-1 rounded-lg border bg-white text-xs">
