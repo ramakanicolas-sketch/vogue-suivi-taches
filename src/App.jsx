@@ -327,7 +327,7 @@ function MainApp({ user, onLogout }){
       <header className="max-w-7xl mx-auto mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Suivi des tâches réseau – Vogue</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">Vogue - Suivi Réseau</h1>
             <p className="text-sm text-neutral-600">Créez, suivez et validez les tâches assignées aux responsables de magasin.</p>
             <div className="flex items-center gap-3 mt-2">
               <span className="text-xs text-green-600">🟢 Synchronisé en temps réel</span>
