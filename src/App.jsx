@@ -482,25 +482,141 @@ function MainApp({ user, onLogout }){
 }
 
 function TaskTable({tasks, onUpdate, onDelete, userRole}){
-  if(!tasks.length) return <p className="text-sm text-neutral-500">Aucune tâche pour ces filtres.</p>;
+  if(!tasks.length) return <p className="text-sm text-neutral-500 p-4">Aucune tâche pour ces filtres.</p>;
   return (
-    <div className="overflow-auto border rounded-2xl">
-      <table className="min-w-full text-sm">
-        <thead className="bg-neutral-50">
-          <tr>
-            <Th>Magasin</Th>
-            <Th>Tâche</Th>
-            <Th>Passage</Th>
-            <Th>Deadline</Th>
-            <Th>Statut</Th>
-            {(userRole === "admin" || userRole === "vm") && <Th>Validation</Th>}
-            <Th>Actions</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map(t=> <TaskRow key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} />)}
-        </tbody>
-      </table>
+    <>
+      {/* Version mobile : Cartes */}
+      <div className="md:hidden space-y-4">
+        {tasks.map(t=> <TaskCard key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} />)}
+      </div>
+      
+      {/* Version desktop : Tableau */}
+      <div className="hidden md:block overflow-auto border rounded-2xl">
+        <table className="min-w-full text-sm">
+          <thead className="bg-neutral-50">
+            <tr>
+              <Th>Magasin</Th>
+              <Th>Tâche</Th>
+              <Th>Passage</Th>
+              <Th>Deadline</Th>
+              <Th>Statut</Th>
+              {(userRole === "admin" || userRole === "vm") && <Th>Validation</Th>}
+              <Th>Actions</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map(t=> <TaskRow key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} />)}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function TaskCard({t, onUpdate, onDelete, userRole}){
+  const overdue = useMemo(()=>{
+    if(!t.deadline || t.status === 'Fait') return false;
+    const dl = new Date(t.deadline); if(isNaN(+dl)) return false;
+    return dl < new Date();
+  }, [t.deadline, t.status]);
+
+  const canEditDeadline = userRole === "admin" || userRole === "vm";
+
+  return (
+    <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
+      {/* En-tête : Magasin */}
+      <div className="mb-3 pb-3 border-b border-neutral-100">
+        <div className="font-semibold text-base text-neutral-900">{t.store}</div>
+        <div className="text-neutral-500 text-sm mt-0.5">{t.storeManager || "Resp. magasin ?"}</div>
+      </div>
+
+      {/* Tâche principale */}
+      <div className="mb-4">
+        <div className="font-medium text-base text-neutral-900 mb-2 leading-relaxed">{t.title}</div>
+        {t.notes && (
+          <div className="text-neutral-600 text-sm mt-2 p-2 bg-neutral-50 rounded-lg">
+            <strong className="text-neutral-700">Commentaire VM:</strong> {t.notes}
+          </div>
+        )}
+        {t.feedbackMagasin && (
+          <div className="text-blue-700 text-sm mt-2 p-2 bg-blue-50 rounded-lg">
+            <strong>Retour magasin:</strong> {t.feedbackMagasin}
+          </div>
+        )}
+        <div className="text-xs text-neutral-400 mt-2">Contrôleur: {t.controller || "—"}</div>
+      </div>
+
+      {/* Dates */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <div className="text-xs text-neutral-500 mb-1">Date de passage</div>
+          <div className="text-sm font-medium">{formatDate(t.date)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-neutral-500 mb-1">Deadline</div>
+          {canEditDeadline ? (
+            <input
+              type="date"
+              value={t.deadline || ''}
+              onChange={(e) => onUpdate(t.id, {deadline: e.target.value})}
+              className="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+            />
+          ) : (
+            <div className={clsx("text-sm font-medium", overdue ? "text-red-600" : "")}>
+              {formatDate(t.deadline) || "—"}
+            </div>
+          )}
+          {overdue && (
+            <span className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded-lg mt-1 inline-block">
+              En retard
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Statut et Validation */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <div className="text-xs text-neutral-500 mb-1">Statut</div>
+          <select 
+            value={t.status} 
+            onChange={e=>onUpdate(t.id,{status:e.target.value})} 
+            className="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+          >
+            {STATUSES.map(s=> <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        {(userRole === "admin" || userRole === "vm") && (
+          <div>
+            <div className="text-xs text-neutral-500 mb-1">Validation</div>
+            <select 
+              value={t.validation} 
+              onChange={e=>onUpdate(t.id,{validation:e.target.value})} 
+              className="w-full px-3 py-2 rounded-lg border border-neutral-300 bg-white text-sm"
+            >
+              {VALIDATIONS.map(v=> <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-2 pt-3 border-t border-neutral-100">
+        <button 
+          onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur cette tâche', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+          className="flex-1 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 hover:bg-neutral-200 text-sm font-medium transition"
+        >
+          💬 Retour magasin
+        </button>
+        {onDelete && (
+          <button 
+            onClick={()=>onDelete(t.id)} 
+            className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 text-sm font-medium transition"
+          >
+            🗑️
+          </button>
+        )}
+      </div>
     </div>
   );
 }
