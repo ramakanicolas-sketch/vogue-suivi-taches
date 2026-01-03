@@ -9,7 +9,6 @@ const firebaseConfig = {
   apiKey: "AIzaSyAz1way-cODUpXbqq0x1ba5hvEUSESuH38",
   authDomain: "vogue-suivi-taches.firebaseapp.com",
   projectId: "vogue-suivi-taches",
-  storageBucket: "vogue-suivi-taches.firebasestorage.app",
   messagingSenderId: "380089591189",
   appId: "1:380089591189:web:a4b61701a36179e3c9c29c",
   measurementId: "G-XWHM62FQWS"
@@ -355,8 +354,11 @@ function MainApp({ user, onLogout }){
         throw new Error(data.error?.message || 'Erreur lors de l\'upload vers ImgBB');
       }
       
-      // Retourner l'URL de l'image depuis la réponse ImgBB
-      return data.data.url;
+      // Retourner l'URL directe de l'image depuis la réponse ImgBB
+      // data.data.url est l'URL directe de l'image
+      const imageUrl = data.data.url;
+      console.log('Photo uploadée sur ImgBB:', imageUrl);
+      return imageUrl;
     } catch (error) {
       console.error("Erreur upload photo:", error);
       throw error;
@@ -366,7 +368,10 @@ function MainApp({ user, onLogout }){
   async function addPhotoToTask(taskId, photoUrl, isGuidePhoto = false){
     const field = isGuidePhoto ? 'guidePhotos' : 'storePhotos';
     const task = tasks.find(t => t.id === taskId);
-    if(!task) return;
+    if(!task) {
+      console.error('Tâche non trouvée:', taskId);
+      return;
+    }
     
     const currentPhotos = task[field] || [];
     if(!isGuidePhoto && currentPhotos.length >= 5){
@@ -374,7 +379,9 @@ function MainApp({ user, onLogout }){
       return;
     }
     
+    // Ajouter l'URL directe de l'image au tableau dans Firestore
     const updatedPhotos = [...currentPhotos, photoUrl];
+    console.log(`Ajout photo dans ${field}:`, photoUrl);
     await updateTask(taskId, { [field]: updatedPhotos });
   }
 
@@ -695,18 +702,6 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         <div className="text-neutral-500 text-sm mt-0.5">{t.storeManager || "Resp. magasin ?"}</div>
       </div>
 
-      {/* Photos guides (en haut) */}
-      {guidePhotos.length > 0 && (
-        <div className="mb-4">
-          <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
-          <div className="flex flex-wrap gap-2">
-            {guidePhotos.map((url, idx) => (
-              <PhotoThumbnail key={idx} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Standard principal */}
       <div className="mb-4">
         <div className="font-medium text-base text-neutral-900 mb-2 leading-relaxed">{t.title}</div>
@@ -777,15 +772,29 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         )}
       </div>
 
-      {/* Photos de conformité (en bas) */}
-      {storePhotos.length > 0 && (
-        <div className="mb-4">
-          <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
-          <div className="flex flex-wrap gap-2">
-            {storePhotos.map((url, idx) => (
-              <PhotoThumbnail key={idx} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
-            ))}
-          </div>
+      {/* Photos guides et photos magasin (juste au-dessus des boutons) */}
+      {(guidePhotos.length > 0 || storePhotos.length > 0) && (
+        <div className="mb-4 pt-3 border-t border-neutral-100">
+          {guidePhotos.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
+              <div className="flex flex-wrap gap-2">
+                {guidePhotos.map((url, idx) => (
+                  <PhotoThumbnail key={`guide-${idx}`} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
+                ))}
+              </div>
+            </div>
+          )}
+          {storePhotos.length > 0 && (
+            <div>
+              <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
+              <div className="flex flex-wrap gap-2">
+                {storePhotos.map((url, idx) => (
+                  <PhotoThumbnail key={`store-${idx}`} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
