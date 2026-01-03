@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import imageCompression from "browser-image-compression";
 
 const firebaseConfig = {
@@ -16,9 +15,11 @@ const firebaseConfig = {
   measurementId: "G-XWHM62FQWS"
 };
 
+// Clé API ImgBB
+const IMGBB_API_KEY = "85f8179aced261999f475369e3f96650";
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
 
 const STATUSES = ["Non conforme", "En cours", "Conforme", "Non fait"];
 const VALIDATIONS = ["En attente de validation", "Validé", "Non validé"];
@@ -318,6 +319,7 @@ function MainApp({ user, onLogout }){
 
   async function uploadPhoto(taskId, file, isGuidePhoto = false){
     try {
+      // Compression de l'image avant upload pour optimiser la vitesse
       const options = {
         maxSizeMB: 1,
         maxWidthOrHeight: 1200,
@@ -325,14 +327,36 @@ function MainApp({ user, onLogout }){
       };
       const compressedFile = await imageCompression(file, options);
       
-      const folder = isGuidePhoto ? 'guide-photos' : 'conformite-photos';
-      const fileName = `${taskId}/${Date.now()}_${compressedFile.name}`;
-      const storageRef = ref(storage, `${folder}/${fileName}`);
+      // Conversion en base64 pour ImgBB (l'API ImgBB accepte base64)
+      const reader = new FileReader();
+      const base64 = await new Promise((resolve, reject) => {
+        reader.onload = () => {
+          // Extraire la partie base64 (après la virgule)
+          const base64String = reader.result.split(',')[1];
+          resolve(base64String);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(compressedFile);
+      });
       
-      await uploadBytes(storageRef, compressedFile);
-      const downloadURL = await getDownloadURL(storageRef);
+      // Upload vers ImgBB via FormData
+      const formData = new FormData();
+      formData.append('key', IMGBB_API_KEY);
+      formData.append('image', base64);
       
-      return downloadURL;
+      const response = await fetch('https://api.imgbb.com/1/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error?.message || 'Erreur lors de l\'upload vers ImgBB');
+      }
+      
+      // Retourner l'URL de l'image depuis la réponse ImgBB
+      return data.data.url;
     } catch (error) {
       console.error("Erreur upload photo:", error);
       throw error;
@@ -340,7 +364,7 @@ function MainApp({ user, onLogout }){
   }
 
   async function addPhotoToTask(taskId, photoUrl, isGuidePhoto = false){
-    const field = isGuidePhoto ? 'guidePhotos' : 'conformitePhotos';
+    const field = isGuidePhoto ? 'guidePhotos' : 'storePhotos';
     const task = tasks.find(t => t.id === taskId);
     if(!task) return;
     
@@ -356,7 +380,7 @@ function MainApp({ user, onLogout }){
 
   async function removePhotoFromTask(taskId, photoUrl, isGuidePhoto = false){
     try {
-      const field = isGuidePhoto ? 'guidePhotos' : 'conformitePhotos';
+      const field = isGuidePhoto ? 'guidePhotos' : 'storePhotos';
       const task = tasks.find(t => t.id === taskId);
       if(!task) return;
       
@@ -364,19 +388,8 @@ function MainApp({ user, onLogout }){
       const updatedPhotos = currentPhotos.filter(url => url !== photoUrl);
       await updateTask(taskId, { [field]: updatedPhotos });
       
-      // Supprimer le fichier du Storage
-      try {
-        // Extraire le chemin depuis l'URL Firebase Storage
-        const urlObj = new URL(photoUrl);
-        const pathMatch = urlObj.pathname.match(/\/(guide-photos|conformite-photos)\/(.+)$/);
-        if(pathMatch){
-          const storagePath = `${pathMatch[1]}/${pathMatch[2]}`;
-          const photoRef = ref(storage, storagePath);
-          await deleteObject(photoRef);
-        }
-      } catch (err) {
-        console.warn("Erreur suppression fichier Storage:", err);
-      }
+      // Note: ImgBB ne nécessite pas de suppression explicite du fichier
+      // L'image reste sur ImgBB mais n'est plus référencée dans Firestore
     } catch (error) {
       console.error("Erreur suppression photo:", error);
       alert("Erreur lors de la suppression de la photo");
@@ -671,8 +684,8 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
 
   const canEditDeadline = userRole === "admin" || userRole === "vm";
   const guidePhotos = t.guidePhotos || [];
-  const conformitePhotos = t.conformitePhotos || [];
-  const canAddPhoto = conformitePhotos.length < 5;
+  const storePhotos = t.storePhotos || [];
+  const canAddPhoto = storePhotos.length < 5;
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
@@ -765,11 +778,11 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
       </div>
 
       {/* Photos de conformité (en bas) */}
-      {conformitePhotos.length > 0 && (
+      {storePhotos.length > 0 && (
         <div className="mb-4">
-          <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({conformitePhotos.length}/5)</div>
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
           <div className="flex flex-wrap gap-2">
-            {conformitePhotos.map((url, idx) => (
+            {storePhotos.map((url, idx) => (
               <PhotoThumbnail key={idx} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
             ))}
           </div>
@@ -853,8 +866,8 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
 
   const canEditDeadline = userRole === "admin" || userRole === "vm";
   const guidePhotos = t.guidePhotos || [];
-  const conformitePhotos = t.conformitePhotos || [];
-  const canAddPhoto = conformitePhotos.length < 5;
+  const storePhotos = t.storePhotos || [];
+  const canAddPhoto = storePhotos.length < 5;
 
   return (
     <tr className="border-t hover:bg-neutral-50">
@@ -876,11 +889,11 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
         )}
         {t.notes && <div className="text-neutral-500 text-xs mt-1"><strong>Commentaire VM:</strong> {t.notes}</div>}
         {t.feedbackMagasin && <div className="text-blue-600 text-xs mt-1"><strong>Retour magasin:</strong> {t.feedbackMagasin}</div>}
-        {conformitePhotos.length > 0 && (
+        {storePhotos.length > 0 && (
           <div className="mt-2">
-            <div className="text-xs text-neutral-500 mb-1 font-medium">📸 Photos ({conformitePhotos.length}/5)</div>
+            <div className="text-xs text-neutral-500 mb-1 font-medium">📸 Photos ({storePhotos.length}/5)</div>
             <div className="flex flex-wrap gap-1">
-              {conformitePhotos.map((url, idx) => (
+              {storePhotos.map((url, idx) => (
                 <PhotoThumbnail key={idx} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} size="small" />
               ))}
             </div>
