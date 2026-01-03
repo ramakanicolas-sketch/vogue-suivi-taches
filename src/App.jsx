@@ -568,7 +568,7 @@ function MainApp({ user, onLogout }){
     try {
       // Uploader les photos guides AVANT de créer la tâche (même logique que pour les photos de conformité)
       let guidePhotoUrls = [];
-      if(userRole === "admin" && guidePhotoFiles.length > 0){
+      if((userRole === "admin" || userRole === "vm") && guidePhotoFiles.length > 0){
         console.log('Upload de', guidePhotoFiles.length, 'photo(s) guide(s) vers ImgBB...');
         try {
           guidePhotoUrls = await uploadPhotosForCreation(guidePhotoFiles);
@@ -692,10 +692,10 @@ function MainApp({ user, onLogout }){
         <Input label="Deadline" type="date" value={form.deadline} onChange={v=>setForm(f=>({...f, deadline:v}))} />
         <Textarea label="Commentaire VM" value={form.notes} onChange={v=>setForm(f=>({...f, notes:v}))} placeholder="Instructions, détails, consignes…" />
       </div>
-      {userRole === "admin" && (
+      {(userRole === "admin" || userRole === "vm") && (
         <div>
           <label className="block text-sm mb-2">
-            <span className="text-neutral-700">Photos standard de référence (Admin)</span>
+            <span className="text-neutral-700">Photos standard de référence {userRole === "admin" ? "(Admin)" : "(VM)"}</span>
           </label>
           <div className="space-y-2">
             {guidePhotoFiles.length > 0 && (
@@ -955,8 +955,8 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
             <PhotoGalleryButton photos={guidePhotos} label="📋 Voir le standard de référence" />
           )}
           
-          {/* Bouton "Ajouter photo standard de référence" - UNIQUEMENT pour Admin si aucune photo n'existe */}
-          {userRole === "admin" && (!guidePhotos || guidePhotos.length === 0) && (
+          {/* Bouton "Ajouter photo standard de référence" - Pour Admin et VM si aucune photo n'existe */}
+          {(userRole === "admin" || userRole === "vm") && (!guidePhotos || guidePhotos.length === 0) && (
             <label className="w-full">
               <input
                 type="file"
@@ -976,8 +976,8 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
             </label>
           )}
           
-          {/* Bouton "Ajouter" pour Admin si des photos existent déjà (avec +) */}
-          {userRole === "admin" && guidePhotos && guidePhotos.length > 0 && (
+          {/* Bouton "Ajouter" pour Admin et VM si des photos existent déjà (avec +) */}
+          {(userRole === "admin" || userRole === "vm") && guidePhotos && guidePhotos.length > 0 && (
             <label className="w-full">
               <input
                 type="file"
@@ -1117,8 +1117,8 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
                 )}
               </>
             )}
-            {/* Bouton "Ajouter" UNIQUEMENT pour Admin si aucune photo n'existe */}
-            {userRole === "admin" && guidePhotos.length === 0 && (
+            {/* Bouton "Ajouter" pour Admin et VM si aucune photo n'existe */}
+            {(userRole === "admin" || userRole === "vm") && guidePhotos.length === 0 && (
               <label className="cursor-pointer">
                 <input
                   type="file"
@@ -1137,8 +1137,8 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
                 </span>
               </label>
             )}
-            {/* Bouton "Ajouter" pour Admin si des photos existent déjà */}
-            {userRole === "admin" && guidePhotos.length > 0 && (
+            {/* Bouton "Ajouter" pour Admin et VM si des photos existent déjà */}
+            {(userRole === "admin" || userRole === "vm") && guidePhotos.length > 0 && (
               <label className="cursor-pointer">
                 <input
                   type="file"
