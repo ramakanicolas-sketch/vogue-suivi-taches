@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import * as XLSX from "xlsx";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import imageCompression from "browser-image-compression";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAz1way-cODUpXbqq0x1ba5hvEUSESuH38",
@@ -16,6 +18,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 const STATUSES = ["Non conforme", "En cours", "Conforme", "Non fait"];
 const VALIDATIONS = ["En attente de validation", "Validé", "Non validé"];
@@ -184,16 +187,18 @@ function MainApp({ user, onLogout }){
 
   async function addTask(newTask){
     try {
-      await addDoc(collection(db, "tasks"), {
+      const docRef = await addDoc(collection(db, "tasks"), {
         createdAt: new Date().toISOString(),
         validation: 'En attente de validation',
         status: 'Non conforme',
         feedbackMagasin: '',
         ...newTask
       });
+      return { id: docRef.id };
     } catch (error) {
       console.error("Erreur ajout standard:", error);
       alert("Erreur lors de l'ajout du standard");
+      return null;
     }
   }
 
@@ -311,6 +316,82 @@ function MainApp({ user, onLogout }){
   const canCreateTasks = user.role === "admin" || user.role === "vm";
   const canDelete = user.role === "admin";
 
+  async function uploadPhoto(taskId, file, isGuidePhoto = false){
+    try {
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1200,
+        useWebWorker: true
+      };
+      const compressedFile = await imageCompression(file, options);
+      
+      const folder = isGuidePhoto ? 'guide-photos' : 'conformite-photos';
+      const fileName = `${taskId}/${Date.now()}_${compressedFile.name}`;
+      const storageRef = ref(storage, `${folder}/${fileName}`);
+      
+      await uploadBytes(storageRef, compressedFile);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      return downloadURL;
+    } catch (error) {
+      console.error("Erreur upload photo:", error);
+      throw error;
+    }
+  }
+
+  async function addPhotoToTask(taskId, photoUrl, isGuidePhoto = false){
+    const field = isGuidePhoto ? 'guidePhotos' : 'conformitePhotos';
+    const task = tasks.find(t => t.id === taskId);
+    if(!task) return;
+    
+    const currentPhotos = task[field] || [];
+    if(!isGuidePhoto && currentPhotos.length >= 5){
+      alert("Maximum 5 photos de conformité par standard");
+      return;
+    }
+    
+    const updatedPhotos = [...currentPhotos, photoUrl];
+    await updateTask(taskId, { [field]: updatedPhotos });
+  }
+
+  async function removePhotoFromTask(taskId, photoUrl, isGuidePhoto = false){
+    try {
+      const field = isGuidePhoto ? 'guidePhotos' : 'conformitePhotos';
+      const task = tasks.find(t => t.id === taskId);
+      if(!task) return;
+      
+      const currentPhotos = task[field] || [];
+      const updatedPhotos = currentPhotos.filter(url => url !== photoUrl);
+      await updateTask(taskId, { [field]: updatedPhotos });
+      
+      // Supprimer le fichier du Storage
+      try {
+        // Extraire le chemin depuis l'URL Firebase Storage
+        const urlObj = new URL(photoUrl);
+        const pathMatch = urlObj.pathname.match(/\/(guide-photos|conformite-photos)\/(.+)$/);
+        if(pathMatch){
+          const storagePath = `${pathMatch[1]}/${pathMatch[2]}`;
+          const photoRef = ref(storage, storagePath);
+          await deleteObject(photoRef);
+        }
+      } catch (err) {
+        console.warn("Erreur suppression fichier Storage:", err);
+      }
+    } catch (error) {
+      console.error("Erreur suppression photo:", error);
+      alert("Erreur lors de la suppression de la photo");
+    }
+  }
+
+  async function handlePhotoUpload(taskId, file, isGuidePhoto = false){
+    try {
+      const photoUrl = await uploadPhoto(taskId, file, isGuidePhoto);
+      await addPhotoToTask(taskId, photoUrl, isGuidePhoto);
+    } catch (error) {
+      alert("Erreur lors de l'upload de la photo");
+    }
+  }
+
   if(loading) {
     return (
       <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
@@ -357,7 +438,7 @@ function MainApp({ user, onLogout }){
         {canCreateTasks && (
           <motion.section layout className="lg:col-span-1 bg-white rounded-2xl shadow p-4">
             <h2 className="text-lg font-medium mb-3">Nouveau standard / action standard</h2>
-            <TaskForm stores={stores} onAdd={addTask} />
+            <TaskForm stores={stores} onAdd={addTask} userRole={user.role} onPhotoUpload={handlePhotoUpload} />
           </motion.section>
         )}
 
@@ -375,12 +456,19 @@ function MainApp({ user, onLogout }){
             <button onClick={()=>setFilters({store:"", status:"", validation:"", overdue:false, q:""})} className="px-3 py-2 rounded-xl bg-neutral-900 text-white">Réinitialiser</button>
           </div>
 
-          <TaskTable tasks={filtered} onUpdate={updateTask} onDelete={canDelete ? deleteTask : null} userRole={user.role} />
+          <TaskTable 
+            tasks={filtered} 
+            onUpdate={updateTask} 
+            onDelete={canDelete ? deleteTask : null} 
+            userRole={user.role}
+            onPhotoUpload={handlePhotoUpload}
+            onPhotoRemove={removePhotoFromTask}
+          />
         </motion.section>
       </main>
     </div>
   );
-}function TaskForm({stores, onAdd}){
+}function TaskForm({stores, onAdd, userRole, onPhotoUpload}){
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0,10),
     store: stores[0] || "",
@@ -391,6 +479,7 @@ function MainApp({ user, onLogout }){
     notes: "",
     allStores: false,
   });
+  const [guidePhotoFiles, setGuidePhotoFiles] = useState([]);
   useEffect(()=>{ if(!stores.includes(form.store) && !form.allStores) setForm(f=>({...f, store: stores[0] || ""})) },[stores, form.store, form.allStores]);
 
   async function submit(e){ 
@@ -410,16 +499,29 @@ function MainApp({ user, onLogout }){
           deadline: form.deadline,
           notes: form.notes,
         };
-        await onAdd(taskData);
+        const newTask = await onAdd(taskData);
+        // Upload photos guides si admin
+        if(userRole === "admin" && guidePhotoFiles.length > 0 && newTask?.id){
+          for(const file of guidePhotoFiles){
+            await onPhotoUpload(newTask.id, file, true);
+          }
+        }
       }
       
       alert(`Standard créé pour ${stores.length} magasins !`);
     } else {
       if(!form.store){ alert("Renseignez le magasin."); return; }
-      await onAdd(form);
+      const newTask = await onAdd(form);
+      // Upload photos guides si admin
+      if(userRole === "admin" && guidePhotoFiles.length > 0 && newTask?.id){
+        for(const file of guidePhotoFiles){
+          await onPhotoUpload(newTask.id, file, true);
+        }
+      }
     }
     
     setForm(f=>({...f, title: "", notes: "", storeManager: ""}));
+    setGuidePhotoFiles([]);
   }
 
   return (
@@ -474,6 +576,53 @@ function MainApp({ user, onLogout }){
         <Input label="Deadline" type="date" value={form.deadline} onChange={v=>setForm(f=>({...f, deadline:v}))} />
         <Textarea label="Commentaire VM" value={form.notes} onChange={v=>setForm(f=>({...f, notes:v}))} placeholder="Instructions, détails, consignes…" />
       </div>
+      {userRole === "admin" && (
+        <div>
+          <label className="block text-sm mb-2">
+            <span className="text-neutral-700">Photos standard de référence (Admin)</span>
+          </label>
+          <div className="space-y-2">
+            {guidePhotoFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {guidePhotoFiles.map((file, idx) => {
+                  const url = URL.createObjectURL(file);
+                  return (
+                    <div key={idx} className="relative">
+                      <img src={url} alt={`Guide ${idx + 1}`} className="w-20 h-20 object-cover rounded-lg border" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          URL.revokeObjectURL(url);
+                          setGuidePhotoFiles(f => f.filter((_, i) => i !== idx));
+                        }}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <label className="block">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  setGuidePhotoFiles(f => [...f, ...files]);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <span className="px-3 py-2 rounded-xl border border-neutral-300 bg-white text-sm cursor-pointer hover:bg-neutral-50 inline-block">
+                📸 Ajouter photos de référence
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
       <button onClick={submit} className="w-full py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800">
         {form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter le standard"}
       </button>
@@ -481,13 +630,13 @@ function MainApp({ user, onLogout }){
   );
 }
 
-function TaskTable({tasks, onUpdate, onDelete, userRole}){
+function TaskTable({tasks, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}){
   if(!tasks.length) return <p className="text-sm text-neutral-500 p-4">Aucun standard pour ces filtres.</p>;
   return (
     <>
       {/* Version mobile : Cartes */}
       <div className="md:hidden space-y-4">
-        {tasks.map(t=> <TaskCard key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} />)}
+        {tasks.map(t=> <TaskCard key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} onPhotoUpload={onPhotoUpload} onPhotoRemove={onPhotoRemove} />)}
       </div>
       
       {/* Version desktop : Tableau */}
@@ -505,7 +654,7 @@ function TaskTable({tasks, onUpdate, onDelete, userRole}){
             </tr>
           </thead>
           <tbody>
-            {tasks.map(t=> <TaskRow key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} />)}
+            {tasks.map(t=> <TaskRow key={t.id} t={t} onUpdate={onUpdate} onDelete={onDelete} userRole={userRole} onPhotoUpload={onPhotoUpload} onPhotoRemove={onPhotoRemove} />)}
           </tbody>
         </table>
       </div>
@@ -513,7 +662,7 @@ function TaskTable({tasks, onUpdate, onDelete, userRole}){
   );
 }
 
-function TaskCard({t, onUpdate, onDelete, userRole}){
+function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}){
   const overdue = useMemo(()=>{
     if(!t.deadline || t.status === 'Conforme') return false;
     const dl = new Date(t.deadline); if(isNaN(+dl)) return false;
@@ -521,6 +670,9 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
   }, [t.deadline, t.status]);
 
   const canEditDeadline = userRole === "admin" || userRole === "vm";
+  const guidePhotos = t.guidePhotos || [];
+  const conformitePhotos = t.conformitePhotos || [];
+  const canAddPhoto = conformitePhotos.length < 5;
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
@@ -529,6 +681,18 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
         <div className="font-semibold text-base text-neutral-900">{t.store}</div>
         <div className="text-neutral-500 text-sm mt-0.5">{t.storeManager || "Resp. magasin ?"}</div>
       </div>
+
+      {/* Photos guides (en haut) */}
+      {guidePhotos.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
+          <div className="flex flex-wrap gap-2">
+            {guidePhotos.map((url, idx) => (
+              <PhotoThumbnail key={idx} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Standard principal */}
       <div className="mb-4">
@@ -600,28 +764,87 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
         )}
       </div>
 
+      {/* Photos de conformité (en bas) */}
+      {conformitePhotos.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({conformitePhotos.length}/5)</div>
+          <div className="flex flex-wrap gap-2">
+            {conformitePhotos.map((url, idx) => (
+              <PhotoThumbnail key={idx} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="flex items-center gap-2 pt-3 border-t border-neutral-100">
-        <button 
-          onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
-          className="flex-1 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 hover:bg-neutral-200 text-sm font-medium transition"
-        >
-          💬 Retour magasin
-        </button>
-        {onDelete && (
+      <div className="flex flex-col gap-2 pt-3 border-t border-neutral-100">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={()=>onDelete(t.id)} 
-            className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 text-sm font-medium transition"
+            onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+            className="flex-1 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 hover:bg-neutral-200 text-sm font-medium transition"
           >
-            🗑️
+            💬 Retour magasin
           </button>
-        )}
+          {onDelete && (
+            <button 
+              onClick={()=>onDelete(t.id)} 
+              className="px-4 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 text-sm font-medium transition"
+            >
+              🗑️
+            </button>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          {canAddPhoto && (
+            <label className="w-full">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if(file) {
+                    onPhotoUpload(t.id, file, false);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <span className="block w-full px-4 py-2 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm font-medium transition text-center cursor-pointer">
+                📸 Photo de conformité
+              </span>
+            </label>
+          )}
+          {!canAddPhoto && (
+            <div className="text-xs text-neutral-500 text-center py-2">
+              Maximum 5 photos de conformité atteint
+            </div>
+          )}
+          {userRole === "admin" && (
+            <label className="w-full">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if(file) {
+                    onPhotoUpload(t.id, file, true);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <span className="block w-full px-4 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 text-sm font-medium transition text-center cursor-pointer">
+                📋 Photo standard de référence
+              </span>
+            </label>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function TaskRow({t, onUpdate, onDelete, userRole}){
+function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}){
   const overdue = useMemo(()=>{
     if(!t.deadline || t.status === 'Conforme') return false;
     const dl = new Date(t.deadline); if(isNaN(+dl)) return false;
@@ -629,6 +852,9 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
   }, [t.deadline, t.status]);
 
   const canEditDeadline = userRole === "admin" || userRole === "vm";
+  const guidePhotos = t.guidePhotos || [];
+  const conformitePhotos = t.conformitePhotos || [];
+  const canAddPhoto = conformitePhotos.length < 5;
 
   return (
     <tr className="border-t hover:bg-neutral-50">
@@ -638,8 +864,28 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
       </td>
       <td className="align-top px-3 py-2">
         <div className="font-medium">{t.title}</div>
+        {guidePhotos.length > 0 && (
+          <div className="mt-2">
+            <div className="text-xs text-neutral-500 mb-1 font-medium">📋 Standards de référence</div>
+            <div className="flex flex-wrap gap-1">
+              {guidePhotos.map((url, idx) => (
+                <PhotoThumbnail key={idx} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} size="small" />
+              ))}
+            </div>
+          </div>
+        )}
         {t.notes && <div className="text-neutral-500 text-xs mt-1"><strong>Commentaire VM:</strong> {t.notes}</div>}
         {t.feedbackMagasin && <div className="text-blue-600 text-xs mt-1"><strong>Retour magasin:</strong> {t.feedbackMagasin}</div>}
+        {conformitePhotos.length > 0 && (
+          <div className="mt-2">
+            <div className="text-xs text-neutral-500 mb-1 font-medium">📸 Photos ({conformitePhotos.length}/5)</div>
+            <div className="flex flex-wrap gap-1">
+              {conformitePhotos.map((url, idx) => (
+                <PhotoThumbnail key={idx} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} size="small" />
+              ))}
+            </div>
+          </div>
+        )}
         <div className="text-xs text-neutral-400 mt-1">Contrôleur: {t.controller || "—"}</div>
       </td>
       <td className="align-top px-3 py-2 whitespace-nowrap">{formatDate(t.date)}</td>
@@ -669,20 +915,118 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
         </td>
       )}
       <td className="align-top px-3 py-2 whitespace-nowrap">
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
-            className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-neutral-50"
-            title="Ajouter un retour magasin"
-          >
-            💬
-          </button>
-          {onDelete && (
-            <button onClick={()=>onDelete(t.id)} className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-red-50">🗑️</button>
-          )}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+              className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-neutral-50"
+              title="Ajouter un retour magasin"
+            >
+              💬
+            </button>
+            {canAddPhoto && (
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if(file) {
+                      onPhotoUpload(t.id, file, false);
+                    }
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                />
+                <span className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-blue-50" title="Ajouter une photo de conformité">
+                  📸
+                </span>
+              </label>
+            )}
+            {userRole === "admin" && (
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if(file) {
+                      onPhotoUpload(t.id, file, true);
+                    }
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                />
+                <span className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-purple-50" title="Ajouter une photo standard de référence">
+                  📋
+                </span>
+              </label>
+            )}
+            {onDelete && (
+              <button onClick={()=>onDelete(t.id)} className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-red-50">🗑️</button>
+            )}
+          </div>
         </div>
       </td>
     </tr>
+  );
+}
+
+function PhotoThumbnail({url, onRemove, size = "normal"}){
+  const [isExpanded, setIsExpanded] = useState(false);
+  const sizeClass = size === "small" ? "w-12 h-12" : "w-20 h-20";
+  
+  if(isExpanded){
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onClick={() => setIsExpanded(false)}>
+        <div className="relative max-w-4xl max-h-full">
+          <img src={url} alt="Photo" className="max-w-full max-h-full object-contain rounded-lg" />
+          <button
+            onClick={() => setIsExpanded(false)}
+            className="absolute top-2 right-2 bg-white text-black rounded-full w-8 h-8 font-bold"
+          >
+            ×
+          </button>
+          {onRemove && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if(window.confirm("Supprimer cette photo ?")) {
+                  onRemove();
+                }
+              }}
+              className="absolute bottom-2 right-2 bg-red-500 text-white px-3 py-1 rounded-lg text-sm"
+            >
+              Supprimer
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="relative group">
+      <img 
+        src={url} 
+        alt="Photo" 
+        className={`${sizeClass} object-cover rounded-lg border border-neutral-200 cursor-pointer hover:opacity-80 transition`}
+        onClick={() => setIsExpanded(true)}
+      />
+      {onRemove && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if(window.confirm("Supprimer cette photo ?")) {
+              onRemove();
+            }
+          }}
+          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition"
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }
 
