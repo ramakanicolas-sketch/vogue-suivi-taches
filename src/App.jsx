@@ -817,6 +817,7 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
           )}
         </div>
         <div className="flex flex-col gap-2">
+          {/* Bouton Photo de conformité (pour les magasins) */}
           {canAddPhoto && (
             <label className="w-full">
               <input
@@ -841,8 +842,14 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
               Maximum 5 photos de conformité atteint
             </div>
           )}
-          {/* Bouton pour Admin : Upload photo de référence */}
-          {userRole === "admin" && (
+          
+          {/* Bouton "Voir le standard de référence" - Pour TOUT LE MONDE si des photos existent */}
+          {guidePhotos.length > 0 && (
+            <PhotoGalleryButton photos={guidePhotos} label="👁️ Voir le standard de référence" />
+          )}
+          
+          {/* Bouton "Ajouter photo standard de référence" - UNIQUEMENT pour Admin si aucune photo n'existe */}
+          {userRole === "admin" && guidePhotos.length === 0 && (
             <label className="w-full">
               <input
                 type="file"
@@ -862,9 +869,25 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
             </label>
           )}
           
-          {/* Bouton pour Magasin : Afficher les photos de référence */}
-          {userRole === "store" && (
-            <PhotoGalleryButton photos={guidePhotos} label="📋 Photos de référence" />
+          {/* Bouton "Ajouter" pour Admin si des photos existent déjà (avec +) */}
+          {userRole === "admin" && guidePhotos.length > 0 && (
+            <label className="w-full">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if(file) {
+                    onPhotoUpload(t.id, file, true);
+                  }
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <span className="block w-full px-4 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 text-sm font-medium transition text-center cursor-pointer">
+                ➕ Ajouter une autre photo de référence
+              </span>
+            </label>
           )}
         </div>
       </div>
@@ -883,6 +906,7 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
   const guidePhotos = t.guidePhotos || [];
   const storePhotos = t.storePhotos || [];
   const canAddPhoto = storePhotos.length < 5;
+  const [showGallery, setShowGallery] = useState(false);
 
   return (
     <tr className="border-t hover:bg-neutral-50">
@@ -971,7 +995,23 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
                 </span>
               </label>
             )}
-            {userRole === "admin" && (
+            {/* Bouton "Voir" pour TOUT LE MONDE si des photos existent */}
+            {guidePhotos.length > 0 && (
+              <>
+                <button
+                  onClick={() => setShowGallery(true)}
+                  className="px-2 py-1 rounded-lg bg-purple-50 border border-purple-200 text-xs hover:bg-purple-100 text-purple-700"
+                  title="Voir le standard de référence"
+                >
+                  👁️
+                </button>
+                {showGallery && (
+                  <PhotoGalleryModal photos={guidePhotos} onClose={() => setShowGallery(false)} />
+                )}
+              </>
+            )}
+            {/* Bouton "Ajouter" UNIQUEMENT pour Admin si aucune photo n'existe */}
+            {userRole === "admin" && guidePhotos.length === 0 && (
               <label className="cursor-pointer">
                 <input
                   type="file"
@@ -990,6 +1030,26 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
                 </span>
               </label>
             )}
+            {/* Bouton "Ajouter" pour Admin si des photos existent déjà */}
+            {userRole === "admin" && guidePhotos.length > 0 && (
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if(file) {
+                      onPhotoUpload(t.id, file, true);
+                    }
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                />
+                <span className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-purple-50" title="Ajouter une autre photo de référence">
+                  ➕
+                </span>
+              </label>
+            )}
             {onDelete && (
               <button onClick={()=>onDelete(t.id)} className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-red-50">🗑️</button>
             )}
@@ -1000,19 +1060,72 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
   );
 }
 
-function PhotoGalleryButton({photos, label}){
-  const [isOpen, setIsOpen] = useState(false);
+function PhotoGalleryModal({photos, onClose}){
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  if(photos.length === 0) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4" 
+      onClick={onClose}
+    >
+      <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex flex-col items-center justify-center">
+        <img 
+          src={photos[currentIndex]} 
+          alt={`Photo ${currentIndex + 1} sur ${photos.length}`} 
+          className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl mb-4" 
+          onClick={(e) => e.stopPropagation()}
+        />
+        
+        {/* Navigation */}
+        {photos.length > 1 && (
+          <div className="flex items-center gap-4 mb-4">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIndex((prev) => (prev > 0 ? prev - 1 : photos.length - 1));
+              }}
+              className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
+            >
+              ← Précédent
+            </button>
+            <span className="text-white text-sm">
+              {currentIndex + 1} / {photos.length}
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIndex((prev) => (prev < photos.length - 1 ? prev + 1 : 0));
+              }}
+              className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
+            >
+              Suivant →
+            </button>
+          </div>
+        )}
+        
+        {/* Bouton fermer */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="absolute top-4 right-4 bg-white text-black rounded-full w-10 h-10 font-bold text-xl hover:bg-neutral-200 transition shadow-lg"
+          title="Fermer"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PhotoGalleryButton({photos, label}){
+  const [isOpen, setIsOpen] = useState(false);
+
   if(photos.length === 0){
-    return (
-      <button
-        disabled
-        className="w-full px-4 py-2 rounded-xl bg-neutral-100 text-neutral-400 text-sm font-medium text-center cursor-not-allowed"
-      >
-        {label} - Aucune photo disponible
-      </button>
-    );
+    return null; // Ne rien afficher si aucune photo
   }
 
   return (
@@ -1024,60 +1137,7 @@ function PhotoGalleryButton({photos, label}){
         {label} ({photos.length})
       </button>
       
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4" 
-          onClick={() => setIsOpen(false)}
-        >
-          <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex flex-col items-center justify-center">
-            <img 
-              src={photos[currentIndex]} 
-              alt={`Photo ${currentIndex + 1} sur ${photos.length}`} 
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl mb-4" 
-              onClick={(e) => e.stopPropagation()}
-            />
-            
-            {/* Navigation */}
-            {photos.length > 1 && (
-              <div className="flex items-center gap-4 mb-4">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCurrentIndex((prev) => (prev > 0 ? prev - 1 : photos.length - 1));
-                  }}
-                  className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
-                >
-                  ← Précédent
-                </button>
-                <span className="text-white text-sm">
-                  {currentIndex + 1} / {photos.length}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCurrentIndex((prev) => (prev < photos.length - 1 ? prev + 1 : 0));
-                  }}
-                  className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
-                >
-                  Suivant →
-                </button>
-              </div>
-            )}
-            
-            {/* Bouton fermer */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsOpen(false);
-              }}
-              className="absolute top-4 right-4 bg-white text-black rounded-full w-10 h-10 font-bold text-xl hover:bg-neutral-200 transition shadow-lg"
-              title="Fermer"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
+      {isOpen && <PhotoGalleryModal photos={photos} onClose={() => setIsOpen(false)} />}
     </>
   );
 }
