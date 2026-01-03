@@ -192,6 +192,8 @@ function MainApp({ user, onLogout }){
         validation: 'En attente de validation',
         status: 'Non conforme',
         feedbackMagasin: '',
+        guidePhotos: [], // Initialiser le tableau pour les photos guides
+        storePhotos: [], // Initialiser le tableau pour les photos magasin
         ...newTask
       });
       return { id: docRef.id };
@@ -772,29 +774,27 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         )}
       </div>
 
-      {/* Photos guides et photos magasin (juste au-dessus des boutons) */}
-      {(guidePhotos.length > 0 || storePhotos.length > 0) && (
+      {/* Photos guides - Affichage direct si présentes */}
+      {guidePhotos.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
+          <div className="flex flex-wrap gap-2">
+            {guidePhotos.map((url, idx) => (
+              <PhotoThumbnail key={`guide-${idx}`} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Photos magasin (juste au-dessus des boutons) */}
+      {storePhotos.length > 0 && (
         <div className="mb-4 pt-3 border-t border-neutral-100">
-          {guidePhotos.length > 0 && (
-            <div className="mb-3">
-              <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
-              <div className="flex flex-wrap gap-2">
-                {guidePhotos.map((url, idx) => (
-                  <PhotoThumbnail key={`guide-${idx}`} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
-                ))}
-              </div>
-            </div>
-          )}
-          {storePhotos.length > 0 && (
-            <div>
-              <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
-              <div className="flex flex-wrap gap-2">
-                {storePhotos.map((url, idx) => (
-                  <PhotoThumbnail key={`store-${idx}`} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
+          <div className="flex flex-wrap gap-2">
+            {storePhotos.map((url, idx) => (
+              <PhotoThumbnail key={`store-${idx}`} url={url} onRemove={() => onPhotoRemove(t.id, url, false)} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -841,6 +841,7 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
               Maximum 5 photos de conformité atteint
             </div>
           )}
+          {/* Bouton pour Admin : Upload photo de référence */}
           {userRole === "admin" && (
             <label className="w-full">
               <input
@@ -856,9 +857,14 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
                 className="hidden"
               />
               <span className="block w-full px-4 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 text-sm font-medium transition text-center cursor-pointer">
-                📋 Photo standard de référence
+                📋 Ajouter photo standard de référence
               </span>
             </label>
+          )}
+          
+          {/* Bouton pour Magasin : Afficher les photos de référence */}
+          {userRole === "store" && (
+            <PhotoGalleryButton photos={guidePhotos} label="📋 Photos de référence" />
           )}
         </div>
       </div>
@@ -994,18 +1000,112 @@ function TaskRow({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove}
   );
 }
 
+function PhotoGalleryButton({photos, label}){
+  const [isOpen, setIsOpen] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  if(photos.length === 0){
+    return (
+      <button
+        disabled
+        className="w-full px-4 py-2 rounded-xl bg-neutral-100 text-neutral-400 text-sm font-medium text-center cursor-not-allowed"
+      >
+        {label} - Aucune photo disponible
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="w-full px-4 py-2 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 text-sm font-medium transition text-center"
+      >
+        {label} ({photos.length})
+      </button>
+      
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4" 
+          onClick={() => setIsOpen(false)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex flex-col items-center justify-center">
+            <img 
+              src={photos[currentIndex]} 
+              alt={`Photo ${currentIndex + 1} sur ${photos.length}`} 
+              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl mb-4" 
+              onClick={(e) => e.stopPropagation()}
+            />
+            
+            {/* Navigation */}
+            {photos.length > 1 && (
+              <div className="flex items-center gap-4 mb-4">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentIndex((prev) => (prev > 0 ? prev - 1 : photos.length - 1));
+                  }}
+                  className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
+                >
+                  ← Précédent
+                </button>
+                <span className="text-white text-sm">
+                  {currentIndex + 1} / {photos.length}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentIndex((prev) => (prev < photos.length - 1 ? prev + 1 : 0));
+                  }}
+                  className="px-4 py-2 bg-white text-black rounded-lg font-medium hover:bg-neutral-200 transition"
+                >
+                  Suivant →
+                </button>
+              </div>
+            )}
+            
+            {/* Bouton fermer */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOpen(false);
+              }}
+              className="absolute top-4 right-4 bg-white text-black rounded-full w-10 h-10 font-bold text-xl hover:bg-neutral-200 transition shadow-lg"
+              title="Fermer"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function PhotoThumbnail({url, onRemove, size = "normal"}){
   const [isExpanded, setIsExpanded] = useState(false);
   const sizeClass = size === "small" ? "w-12 h-12" : "w-20 h-20";
   
   if(isExpanded){
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onClick={() => setIsExpanded(false)}>
-        <div className="relative max-w-4xl max-h-full">
-          <img src={url} alt="Photo" className="max-w-full max-h-full object-contain rounded-lg" />
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4" 
+        onClick={() => setIsExpanded(false)}
+      >
+        <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex items-center justify-center">
+          <img 
+            src={url} 
+            alt="Photo en grand" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" 
+            onClick={(e) => e.stopPropagation()}
+          />
           <button
-            onClick={() => setIsExpanded(false)}
-            className="absolute top-2 right-2 bg-white text-black rounded-full w-8 h-8 font-bold"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(false);
+            }}
+            className="absolute top-4 right-4 bg-white text-black rounded-full w-10 h-10 font-bold text-xl hover:bg-neutral-200 transition shadow-lg"
+            title="Fermer"
           >
             ×
           </button>
@@ -1015,9 +1115,10 @@ function PhotoThumbnail({url, onRemove, size = "normal"}){
                 e.stopPropagation();
                 if(window.confirm("Supprimer cette photo ?")) {
                   onRemove();
+                  setIsExpanded(false);
                 }
               }}
-              className="absolute bottom-2 right-2 bg-red-500 text-white px-3 py-1 rounded-lg text-sm"
+              className="absolute bottom-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition shadow-lg"
             >
               Supprimer
             </button>
@@ -1031,8 +1132,8 @@ function PhotoThumbnail({url, onRemove, size = "normal"}){
     <div className="relative group">
       <img 
         src={url} 
-        alt="Photo" 
-        className={`${sizeClass} object-cover rounded-lg border border-neutral-200 cursor-pointer hover:opacity-80 transition`}
+        alt="Photo miniature" 
+        className={`${sizeClass} object-cover rounded-lg border border-neutral-200 cursor-pointer hover:opacity-80 hover:scale-105 transition-all shadow-sm`}
         onClick={() => setIsExpanded(true)}
       />
       {onRemove && (
@@ -1043,7 +1144,8 @@ function PhotoThumbnail({url, onRemove, size = "normal"}){
               onRemove();
             }
           }}
-          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition"
+          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition shadow-md hover:bg-red-600"
+          title="Supprimer"
         >
           ×
         </button>
