@@ -692,8 +692,9 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
   }, [t.deadline, t.status]);
 
   const canEditDeadline = userRole === "admin" || userRole === "vm";
-  const guidePhotos = t.guidePhotos || [];
-  const storePhotos = t.storePhotos || [];
+  // S'assurer que guidePhotos est bien un tableau
+  const guidePhotos = Array.isArray(t.guidePhotos) ? t.guidePhotos : (t.guidePhotos ? [t.guidePhotos] : []);
+  const storePhotos = Array.isArray(t.storePhotos) ? t.storePhotos : (t.storePhotos ? [t.storePhotos] : []);
   const canAddPhoto = storePhotos.length < 5;
 
   return (
@@ -774,9 +775,9 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         )}
       </div>
 
-      {/* Photos guides - Affichage direct si présentes */}
-      {guidePhotos.length > 0 && (
-        <div className="mb-4">
+      {/* Photos guides - Affichage direct des miniatures (au-dessus des boutons) */}
+      {guidePhotos && guidePhotos.length > 0 && (
+        <div className="mb-4 pt-3 border-t border-neutral-100">
           <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
           <div className="flex flex-wrap gap-2">
             {guidePhotos.map((url, idx) => (
@@ -844,12 +845,12 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
           )}
           
           {/* Bouton "Voir le standard de référence" - Pour TOUT LE MONDE si des photos existent */}
-          {guidePhotos.length > 0 && (
-            <PhotoGalleryButton photos={guidePhotos} label="👁️ Voir le standard de référence" />
+          {guidePhotos && guidePhotos.length > 0 && (
+            <PhotoGalleryButton photos={guidePhotos} label="📋 Voir le standard de référence" />
           )}
           
           {/* Bouton "Ajouter photo standard de référence" - UNIQUEMENT pour Admin si aucune photo n'existe */}
-          {userRole === "admin" && guidePhotos.length === 0 && (
+          {userRole === "admin" && (!guidePhotos || guidePhotos.length === 0) && (
             <label className="w-full">
               <input
                 type="file"
@@ -870,7 +871,7 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
           )}
           
           {/* Bouton "Ajouter" pour Admin si des photos existent déjà (avec +) */}
-          {userRole === "admin" && guidePhotos.length > 0 && (
+          {userRole === "admin" && guidePhotos && guidePhotos.length > 0 && (
             <label className="w-full">
               <input
                 type="file"
@@ -1124,7 +1125,8 @@ function PhotoGalleryModal({photos, onClose}){
 function PhotoGalleryButton({photos, label}){
   const [isOpen, setIsOpen] = useState(false);
 
-  if(photos.length === 0){
+  // Toujours afficher le bouton si photos existe et contient des éléments
+  if(!photos || photos.length === 0){
     return null; // Ne rien afficher si aucune photo
   }
 
