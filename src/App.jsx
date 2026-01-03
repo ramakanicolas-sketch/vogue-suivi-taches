@@ -188,17 +188,21 @@ function MainApp({ user, onLogout }){
   async function addTask(newTask){
     try {
       // S'assurer que guidePhotos et storePhotos sont des tableaux
+      // IMPORTANT: guidePhotos doit être inclus APRÈS le spread pour ne pas être écrasé
       const taskData = {
         createdAt: new Date().toISOString(),
         validation: 'En attente de validation',
         status: 'Non conforme',
         feedbackMagasin: '',
-        guidePhotos: Array.isArray(newTask.guidePhotos) ? newTask.guidePhotos : [],
-        storePhotos: Array.isArray(newTask.storePhotos) ? newTask.storePhotos : [],
-        ...newTask
+        ...newTask, // Spread d'abord
+        // Puis forcer guidePhotos et storePhotos pour s'assurer qu'ils sont bien des tableaux
+        guidePhotos: Array.isArray(newTask.guidePhotos) ? newTask.guidePhotos : (newTask.guidePhotos || []),
+        storePhotos: Array.isArray(newTask.storePhotos) ? newTask.storePhotos : (newTask.storePhotos || []),
       };
       console.log("addTask - Données finales envoyées à Firestore :", taskData);
+      console.log("addTask - guidePhotos:", taskData.guidePhotos, "Type:", Array.isArray(taskData.guidePhotos), "Length:", taskData.guidePhotos?.length);
       const docRef = await addDoc(collection(db, "tasks"), taskData);
+      console.log("addTask - Document créé avec ID:", docRef.id);
       return { id: docRef.id };
     } catch (error) {
       console.error("Erreur ajout standard:", error);
@@ -562,12 +566,20 @@ function MainApp({ user, onLogout }){
     setIsUploading(true);
     
     try {
-      // Uploader les photos guides AVANT de créer la tâche
+      // Uploader les photos guides AVANT de créer la tâche (même logique que pour les photos de conformité)
       let guidePhotoUrls = [];
       if(userRole === "admin" && guidePhotoFiles.length > 0){
-        console.log('Upload de', guidePhotoFiles.length, 'photo(s) vers ImgBB...');
-        guidePhotoUrls = await uploadPhotosForCreation(guidePhotoFiles);
-        console.log('URLs récupérées:', guidePhotoUrls);
+        console.log('Upload de', guidePhotoFiles.length, 'photo(s) guide(s) vers ImgBB...');
+        try {
+          guidePhotoUrls = await uploadPhotosForCreation(guidePhotoFiles);
+          console.log('URLs guidePhotos récupérées:', guidePhotoUrls);
+          console.log('Type de guidePhotoUrls:', Array.isArray(guidePhotoUrls) ? 'Array' : typeof guidePhotoUrls);
+        } catch (error) {
+          console.error('Erreur upload photos guides:', error);
+          alert('Erreur lors de l\'upload des photos de référence. Veuillez réessayer.');
+          setIsUploading(false);
+          return;
+        }
       }
       
       if(form.allStores){
@@ -577,6 +589,7 @@ function MainApp({ user, onLogout }){
         }
         
         for(const store of stores){
+          // Construire taskData explicitement pour s'assurer que guidePhotos est inclus
           const taskData = {
             date: form.date,
             store: store,
@@ -585,10 +598,11 @@ function MainApp({ user, onLogout }){
             title: form.title,
             deadline: form.deadline,
             notes: form.notes,
-            guidePhotos: guidePhotoUrls, // Inclure les URLs directement
+            guidePhotos: Array.isArray(guidePhotoUrls) ? guidePhotoUrls : [], // Forcer le tableau
             storePhotos: [], // Initialiser le tableau
           };
-          console.log("Données envoyées à Firestore :", taskData);
+          console.log("Données envoyées à Firestore (tous magasins):", taskData);
+          console.log("guidePhotos dans taskData:", taskData.guidePhotos, "Type:", Array.isArray(taskData.guidePhotos));
           await onAdd(taskData);
         }
         
@@ -599,12 +613,20 @@ function MainApp({ user, onLogout }){
           setIsUploading(false);
           return;
         }
+        // Créer taskData en s'assurant que guidePhotos est bien inclus (même logique que pour les photos de conformité)
         const taskData = {
-          ...form,
-          guidePhotos: guidePhotoUrls, // Inclure les URLs directement
+          date: form.date,
+          store: form.store,
+          controller: form.controller,
+          storeManager: form.storeManager,
+          title: form.title,
+          deadline: form.deadline,
+          notes: form.notes,
+          guidePhotos: Array.isArray(guidePhotoUrls) ? guidePhotoUrls : [], // Forcer le tableau
           storePhotos: [], // Initialiser le tableau
         };
-        console.log("Données envoyées à Firestore :", taskData);
+        console.log("Données envoyées à Firestore (un magasin):", taskData);
+        console.log("guidePhotos dans taskData:", taskData.guidePhotos, "Type:", Array.isArray(taskData.guidePhotos));
         await onAdd(taskData);
       }
       
@@ -859,10 +881,10 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         )}
       </div>
 
-      {/* Photos guides - Affichage direct des miniatures (au-dessus des boutons) */}
+      {/* Photos guides - Affichage exactement comme les photos de conformité */}
       {guidePhotos && guidePhotos.length > 0 && (
         <div className="mb-4 pt-3 border-t border-neutral-100">
-          <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standards de référence</div>
+          <div className="text-xs text-neutral-500 mb-2 font-medium">📋 Standard de référence</div>
           <div className="flex flex-wrap gap-2">
             {guidePhotos.map((url, idx) => (
               <PhotoThumbnail key={`guide-${idx}`} url={url} onRemove={userRole === "admin" ? () => onPhotoRemove(t.id, url, true) : null} />
@@ -871,7 +893,7 @@ function TaskCard({t, onUpdate, onDelete, userRole, onPhotoUpload, onPhotoRemove
         </div>
       )}
 
-      {/* Photos magasin (juste au-dessus des boutons) */}
+      {/* Photos magasin */}
       {storePhotos.length > 0 && (
         <div className="mb-4 pt-3 border-t border-neutral-100">
           <div className="text-xs text-neutral-500 mb-2 font-medium">📸 Photos de conformité ({storePhotos.length}/5)</div>
