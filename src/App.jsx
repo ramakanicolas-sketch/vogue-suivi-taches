@@ -17,8 +17,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const STATUSES = ["À faire", "En cours", "Fait", "Non fait"];
-const VALIDATIONS = ["Non contrôlé", "Validé", "Non validé"];
+const STATUSES = ["Non conforme", "En cours", "Conforme", "Non fait"];
+const VALIDATIONS = ["En attente de validation", "Validé", "Non validé"];
 
 const STORE_CODES = {
   "ADMIN-VOGUE-2025": { role: "admin", store: null, name: "Administrateur" },
@@ -91,7 +91,7 @@ export default function App(){
         >
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-neutral-900 mb-2">Vogue</h1>
-            <p className="text-neutral-600">Suivi des tâches réseau</p>
+            <p className="text-neutral-600">Suivi des standards réseau</p>
           </div>
           
           <form onSubmit={handleLogin} className="space-y-4">
@@ -171,7 +171,7 @@ function MainApp({ user, onLogout }){
         if(!t.deadline) return false;
         const dl = new Date(t.deadline);
         if(isNaN(+dl)) return false;
-        if(!(dl < now && t.status !== "Fait")) return false;
+        if(!(dl < now && t.status !== "Conforme")) return false;
       }
       if(filters.q){
         const q = filters.q.toLowerCase();
@@ -186,14 +186,14 @@ function MainApp({ user, onLogout }){
     try {
       await addDoc(collection(db, "tasks"), {
         createdAt: new Date().toISOString(),
-        validation: 'Non contrôlé',
-        status: 'À faire',
+        validation: 'En attente de validation',
+        status: 'Non conforme',
         feedbackMagasin: '',
         ...newTask
       });
     } catch (error) {
-      console.error("Erreur ajout tâche:", error);
-      alert("Erreur lors de l'ajout de la tâche");
+      console.error("Erreur ajout standard:", error);
+      alert("Erreur lors de l'ajout du standard");
     }
   }
 
@@ -207,7 +207,7 @@ function MainApp({ user, onLogout }){
   }
 
   async function deleteTask(id){
-    if(!window.confirm("Supprimer cette tâche ?")) return;
+    if(!window.confirm("Supprimer ce standard ?")) return;
     try {
       await deleteDoc(doc(db, "tasks", id));
     } catch (error) {
@@ -220,7 +220,7 @@ function MainApp({ user, onLogout }){
     const excelData = filtered.map(t => ({
       'Magasin': t.store || '',
       'Responsable magasin': t.storeManager || '',
-      'Tâche demandée': t.title || '',
+      'Standard demandé': t.title || '',
       'Commentaire VM': t.notes || '',
       'Retour magasin': t.feedbackMagasin || '',
       'Contrôleur': t.controller || '',
@@ -241,9 +241,9 @@ function MainApp({ user, onLogout }){
     worksheet['!cols'] = colWidths;
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Tâches");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Standards");
 
-    const fileName = `Suivi_Taches_Vogue_${new Date().toISOString().slice(0,10)}.xlsx`;
+    const fileName = `Suivi_Standards_Vogue_${new Date().toISOString().slice(0,10)}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   }
 
@@ -264,21 +264,21 @@ function MainApp({ user, onLogout }){
           const taskData = {
             store: row['Magasin'] || '',
             storeManager: row['Responsable magasin'] || '',
-            title: row['Tâche demandée'] || '',
+            title: row['Standard demandé'] || '',
             notes: row['Commentaire VM'] || '',
             feedbackMagasin: row['Retour magasin'] || '',
             controller: row['Contrôleur'] || '',
             date: parseExcelDate(row['Date de passage']) || new Date().toISOString().slice(0,10),
             deadline: parseExcelDate(row['Deadline']) || '',
-            status: row['Statut'] || 'À faire',
-            validation: row['Validation'] || 'Non contrôlé',
+            status: row['Statut'] || 'Non conforme',
+            validation: row['Validation'] || 'En attente de validation',
             createdAt: parseExcelDate(row['Date de création']) || new Date().toISOString()
           };
           
           await addDoc(collection(db, "tasks"), taskData);
         }
         
-        alert(`${jsonData.length} tâche(s) importée(s) avec succès !`);
+        alert(`${jsonData.length} standard(s) importé(s) avec succès !`);
       } catch(err) { 
         console.error(err);
         alert('Erreur lors de l\'import du fichier Excel'); 
@@ -328,7 +328,7 @@ function MainApp({ user, onLogout }){
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">Vogue - Suivi Réseau</h1>
-            <p className="text-sm text-neutral-600">Créez, suivez et validez les tâches assignées aux responsables de magasin.</p>
+            <p className="text-sm text-neutral-600">Créez, suivez et validez les standards assignés aux responsables de magasin.</p>
             <div className="flex items-center gap-3 mt-2">
               <span className="text-xs text-green-600">🟢 Synchronisé en temps réel</span>
               <span className="text-xs bg-neutral-900 text-white px-3 py-1 rounded-full">
@@ -356,7 +356,7 @@ function MainApp({ user, onLogout }){
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         {canCreateTasks && (
           <motion.section layout className="lg:col-span-1 bg-white rounded-2xl shadow p-4">
-            <h2 className="text-lg font-medium mb-3">Nouvelle tâche</h2>
+            <h2 className="text-lg font-medium mb-3">Nouveau standard / action standard</h2>
             <TaskForm stores={stores} onAdd={addTask} />
           </motion.section>
         )}
@@ -395,10 +395,10 @@ function MainApp({ user, onLogout }){
 
   async function submit(e){ 
     e.preventDefault();
-    if(!form.title){ alert("Renseignez au minimum la tâche."); return; }
+    if(!form.title){ alert("Renseignez au minimum le standard."); return; }
     
     if(form.allStores){
-      if(!window.confirm(`Créer cette tâche pour les ${stores.length} magasins ?`)) return;
+      if(!window.confirm(`Créer ce standard pour les ${stores.length} magasins ?`)) return;
       
       for(const store of stores){
         const taskData = {
@@ -413,7 +413,7 @@ function MainApp({ user, onLogout }){
         await onAdd(taskData);
       }
       
-      alert(`Tâche créée pour ${stores.length} magasins !`);
+      alert(`Standard créé pour ${stores.length} magasins !`);
     } else {
       if(!form.store){ alert("Renseignez le magasin."); return; }
       await onAdd(form);
@@ -459,7 +459,7 @@ function MainApp({ user, onLogout }){
       
       {form.allStores && (
         <div className="text-sm bg-blue-50 text-blue-700 px-3 py-2 rounded-lg">
-          ℹ️ La tâche sera créée pour les {stores.length} magasins
+          ℹ️ Le standard sera créé pour les {stores.length} magasins
         </div>
       )}
       
@@ -469,20 +469,20 @@ function MainApp({ user, onLogout }){
           <Input label="Resp. magasin" value={form.storeManager} onChange={v=>setForm(f=>({...f, storeManager:v}))} />
         )}
       </div>
-      <Input label="Tâche demandée" value={form.title} onChange={v=>setForm(f=>({...f, title:v}))} placeholder="Ex.: Refaire facing rayon jeans" />
+      <Input label="Standard demandé" value={form.title} onChange={v=>setForm(f=>({...f, title:v}))} placeholder="Ex.: Refaire facing rayon jeans" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Input label="Deadline" type="date" value={form.deadline} onChange={v=>setForm(f=>({...f, deadline:v}))} />
         <Textarea label="Commentaire VM" value={form.notes} onChange={v=>setForm(f=>({...f, notes:v}))} placeholder="Instructions, détails, consignes…" />
       </div>
       <button onClick={submit} className="w-full py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800">
-        {form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter la tâche"}
+        {form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter le standard"}
       </button>
     </div>
   );
 }
 
 function TaskTable({tasks, onUpdate, onDelete, userRole}){
-  if(!tasks.length) return <p className="text-sm text-neutral-500 p-4">Aucune tâche pour ces filtres.</p>;
+  if(!tasks.length) return <p className="text-sm text-neutral-500 p-4">Aucun standard pour ces filtres.</p>;
   return (
     <>
       {/* Version mobile : Cartes */}
@@ -496,7 +496,7 @@ function TaskTable({tasks, onUpdate, onDelete, userRole}){
           <thead className="bg-neutral-50">
             <tr>
               <Th>Magasin</Th>
-              <Th>Tâche</Th>
+              <Th>Standard</Th>
               <Th>Passage</Th>
               <Th>Deadline</Th>
               <Th>Statut</Th>
@@ -515,7 +515,7 @@ function TaskTable({tasks, onUpdate, onDelete, userRole}){
 
 function TaskCard({t, onUpdate, onDelete, userRole}){
   const overdue = useMemo(()=>{
-    if(!t.deadline || t.status === 'Fait') return false;
+    if(!t.deadline || t.status === 'Conforme') return false;
     const dl = new Date(t.deadline); if(isNaN(+dl)) return false;
     return dl < new Date();
   }, [t.deadline, t.status]);
@@ -530,7 +530,7 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
         <div className="text-neutral-500 text-sm mt-0.5">{t.storeManager || "Resp. magasin ?"}</div>
       </div>
 
-      {/* Tâche principale */}
+      {/* Standard principal */}
       <div className="mb-4">
         <div className="font-medium text-base text-neutral-900 mb-2 leading-relaxed">{t.title}</div>
         {t.notes && (
@@ -603,7 +603,7 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
       {/* Actions */}
       <div className="flex items-center gap-2 pt-3 border-t border-neutral-100">
         <button 
-          onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur cette tâche', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+          onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
           className="flex-1 px-4 py-2 rounded-xl bg-neutral-100 text-neutral-700 hover:bg-neutral-200 text-sm font-medium transition"
         >
           💬 Retour magasin
@@ -623,7 +623,7 @@ function TaskCard({t, onUpdate, onDelete, userRole}){
 
 function TaskRow({t, onUpdate, onDelete, userRole}){
   const overdue = useMemo(()=>{
-    if(!t.deadline || t.status === 'Fait') return false;
+    if(!t.deadline || t.status === 'Conforme') return false;
     const dl = new Date(t.deadline); if(isNaN(+dl)) return false;
     return dl < new Date();
   }, [t.deadline, t.status]);
@@ -671,7 +671,7 @@ function TaskRow({t, onUpdate, onDelete, userRole}){
       <td className="align-top px-3 py-2 whitespace-nowrap">
         <div className="flex items-center gap-2">
           <button 
-            onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur cette tâche', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
+            onClick={()=>onUpdate(t.id, {feedbackMagasin: prompt('Retour magasin sur ce standard', t.feedbackMagasin||'') ?? t.feedbackMagasin})} 
             className="px-2 py-1 rounded-lg bg-white border text-xs hover:bg-neutral-50"
             title="Ajouter un retour magasin"
           >
