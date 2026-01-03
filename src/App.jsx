@@ -187,15 +187,18 @@ function MainApp({ user, onLogout }){
 
   async function addTask(newTask){
     try {
-      const docRef = await addDoc(collection(db, "tasks"), {
+      // S'assurer que guidePhotos et storePhotos sont des tableaux
+      const taskData = {
         createdAt: new Date().toISOString(),
         validation: 'En attente de validation',
         status: 'Non conforme',
         feedbackMagasin: '',
-        guidePhotos: [], // Initialiser le tableau pour les photos guides
-        storePhotos: [], // Initialiser le tableau pour les photos magasin
+        guidePhotos: Array.isArray(newTask.guidePhotos) ? newTask.guidePhotos : [],
+        storePhotos: Array.isArray(newTask.storePhotos) ? newTask.storePhotos : [],
         ...newTask
-      });
+      };
+      console.log("addTask - Données finales envoyées à Firestore :", taskData);
+      const docRef = await addDoc(collection(db, "tasks"), taskData);
       return { id: docRef.id };
     } catch (error) {
       console.error("Erreur ajout standard:", error);
@@ -502,48 +505,117 @@ function MainApp({ user, onLogout }){
     allStores: false,
   });
   const [guidePhotoFiles, setGuidePhotoFiles] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
   useEffect(()=>{ if(!stores.includes(form.store) && !form.allStores) setForm(f=>({...f, store: stores[0] || ""})) },[stores, form.store, form.allStores]);
+
+  async function uploadPhotosForCreation(files){
+    const photoUrls = [];
+    for(const file of files){
+      try {
+        const options = {
+          maxSizeMB: 1,
+          maxWidthOrHeight: 1200,
+          useWebWorker: true
+        };
+        const compressedFile = await imageCompression(file, options);
+        
+        const reader = new FileReader();
+        const base64 = await new Promise((resolve, reject) => {
+          reader.onload = () => {
+            const base64String = reader.result.split(',')[1];
+            resolve(base64String);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(compressedFile);
+        });
+        
+        const formData = new FormData();
+        formData.append('key', IMGBB_API_KEY);
+        formData.append('image', base64);
+        
+        const response = await fetch('https://api.imgbb.com/1/upload', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok || !data.success) {
+          throw new Error(data.error?.message || 'Erreur lors de l\'upload vers ImgBB');
+        }
+        
+        photoUrls.push(data.data.url);
+        console.log('Photo uploadée sur ImgBB:', data.data.url);
+      } catch (error) {
+        console.error("Erreur upload photo:", error);
+        throw error;
+      }
+    }
+    return photoUrls;
+  }
 
   async function submit(e){ 
     e.preventDefault();
     if(!form.title){ alert("Renseignez au minimum le standard."); return; }
+    if(isUploading) return; // Empêcher les clics multiples
     
-    if(form.allStores){
-      if(!window.confirm(`Créer ce standard pour les ${stores.length} magasins ?`)) return;
+    setIsUploading(true);
+    
+    try {
+      // Uploader les photos guides AVANT de créer la tâche
+      let guidePhotoUrls = [];
+      if(userRole === "admin" && guidePhotoFiles.length > 0){
+        console.log('Upload de', guidePhotoFiles.length, 'photo(s) vers ImgBB...');
+        guidePhotoUrls = await uploadPhotosForCreation(guidePhotoFiles);
+        console.log('URLs récupérées:', guidePhotoUrls);
+      }
       
-      for(const store of stores){
+      if(form.allStores){
+        if(!window.confirm(`Créer ce standard pour les ${stores.length} magasins ?`)) {
+          setIsUploading(false);
+          return;
+        }
+        
+        for(const store of stores){
+          const taskData = {
+            date: form.date,
+            store: store,
+            controller: form.controller,
+            storeManager: "",
+            title: form.title,
+            deadline: form.deadline,
+            notes: form.notes,
+            guidePhotos: guidePhotoUrls, // Inclure les URLs directement
+            storePhotos: [], // Initialiser le tableau
+          };
+          console.log("Données envoyées à Firestore :", taskData);
+          await onAdd(taskData);
+        }
+        
+        alert(`Standard créé pour ${stores.length} magasins !`);
+      } else {
+        if(!form.store){ 
+          alert("Renseignez le magasin."); 
+          setIsUploading(false);
+          return;
+        }
         const taskData = {
-          date: form.date,
-          store: store,
-          controller: form.controller,
-          storeManager: "",
-          title: form.title,
-          deadline: form.deadline,
-          notes: form.notes,
+          ...form,
+          guidePhotos: guidePhotoUrls, // Inclure les URLs directement
+          storePhotos: [], // Initialiser le tableau
         };
-        const newTask = await onAdd(taskData);
-        // Upload photos guides si admin
-        if(userRole === "admin" && guidePhotoFiles.length > 0 && newTask?.id){
-          for(const file of guidePhotoFiles){
-            await onPhotoUpload(newTask.id, file, true);
-          }
-        }
+        console.log("Données envoyées à Firestore :", taskData);
+        await onAdd(taskData);
       }
       
-      alert(`Standard créé pour ${stores.length} magasins !`);
-    } else {
-      if(!form.store){ alert("Renseignez le magasin."); return; }
-      const newTask = await onAdd(form);
-      // Upload photos guides si admin
-      if(userRole === "admin" && guidePhotoFiles.length > 0 && newTask?.id){
-        for(const file of guidePhotoFiles){
-          await onPhotoUpload(newTask.id, file, true);
-        }
-      }
+      setForm(f=>({...f, title: "", notes: "", storeManager: ""}));
+      setGuidePhotoFiles([]);
+    } catch (error) {
+      console.error("Erreur lors de la création:", error);
+      alert("Erreur lors de la création du standard. Veuillez réessayer.");
+    } finally {
+      setIsUploading(false);
     }
-    
-    setForm(f=>({...f, title: "", notes: "", storeManager: ""}));
-    setGuidePhotoFiles([]);
   }
 
   return (
@@ -645,8 +717,20 @@ function MainApp({ user, onLogout }){
           </div>
         </div>
       )}
-      <button onClick={submit} className="w-full py-2 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800">
-        {form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter le standard"}
+      <button 
+        onClick={submit} 
+        disabled={isUploading}
+        className={clsx(
+          "w-full py-2 rounded-xl text-white font-medium transition",
+          isUploading 
+            ? "bg-neutral-400 cursor-not-allowed" 
+            : "bg-neutral-900 hover:bg-neutral-800"
+        )}
+      >
+        {isUploading 
+          ? "⏳ Chargement..." 
+          : (form.allStores ? `Créer pour ${stores.length} magasins` : "Ajouter le standard")
+        }
       </button>
     </div>
   );
